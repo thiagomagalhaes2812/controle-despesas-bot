@@ -1,4 +1,5 @@
 import logging
+import os
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
