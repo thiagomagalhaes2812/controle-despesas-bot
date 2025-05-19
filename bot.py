@@ -10,6 +10,14 @@ SPREADSHEET_NAME = 'Controle de Despesas'  # Nome da planilha no Google Drive
 
 # === GOOGLE SHEETS SETUP ===
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+import base64
+
+# Reconstruir arquivo creds.json a partir da variável de ambiente
+creds_base64 = os.getenv("CREDS_JSON_BASE64")
+with open("creds.json", "wb") as f:
+    f.write(base64.b64decode(creds_base64))
+
+# Autenticação com Google Sheets
 creds = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
 client = gspread.authorize(creds)
 sheet = client.open(SPREADSHEET_NAME).sheet1  # Usa a primeira aba
