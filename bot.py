@@ -10,24 +10,25 @@ from telegram import Bot
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from dateutil.relativedelta import relativedelta
 
 # === CONFIGURAÇÕES ===
 TOKEN = os.getenv("TOKEN")
 CHAT_ID = 1342787099
 SPREADSHEET_NAME = "Controle de Despesas"
 
-# === FLASK SERVER FAKE PARA RENDER ===
+# === FLASK SERVER PARA RENDER ===
 app = Flask(__name__)
 @app.route('/')
 def keep_alive():
     return 'Bot rodando com sucesso!'
 
-# === ESCAPE MarkdownV2 ===
+# === ESCAPE PARA MarkdownV2 ===
 def escape_markdown(text):
     escape_chars = r'_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
-# === GOOGLE SHEETS ===
+# === GOOGLE SHEETS AUTENTICAÇÃO ===
 creds_base64 = os.getenv("CREDS_JSON_BASE64")
 with open("creds.json", "wb") as f:
     f.write(base64.b64decode(creds_base64))
@@ -42,11 +43,17 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def start(update, context):
-    update.message.reply_text("👋 Olá! Use /nova para registrar uma despesa.\nUse /meuid para ativar lembretes.", parse_mode='MarkdownV2')
+    update.message.reply_text("👋 Olá! Use /nova para registrar uma despesa.\nOu envie frases como:\n`cartão crédito c6 600,00 vencimento 04/05/2025 6 parcelas`", parse_mode='MarkdownV2')
 
 def nova(update, context):
-    update.message.reply_text("Envie assim:\n`75.50 | Alimentação | Padaria | 20/05`", parse_mode='MarkdownV2')
+    update.message.reply_text("Envie a despesa assim:\n`75.50 | Alimentação | Padaria | 20/05`", parse_mode='MarkdownV2')
 
+def capturar_chat_id(update, context):
+    chat_id = update.message.chat_id
+    msg = f"🆔 Seu chat_id é:\n{chat_id}"
+    update.message.reply_text(escape_markdown(msg), parse_mode='MarkdownV2')
+
+# === REGISTRO MANUAL ===
 def processa_despesa(update, context):
     texto = update.message.text
     partes = [p.strip() for p in texto.split('|')]
@@ -64,10 +71,40 @@ def processa_despesa(update, context):
     sheet.append_row([data, valor, categoria, descricao, usuario])
     update.message.reply_text(f"✅ Registrado: R${valor} | {categoria} | {descricao} | {data}", parse_mode='MarkdownV2')
 
-def capturar_chat_id(update, context):
-    chat_id = update.message.chat_id
-    msg = f"🆔 Seu chat_id é:\n{chat_id}"
-    update.message.reply_text(escape_markdown(msg), parse_mode='MarkdownV2')
+# === REGISTRO INTELIGENTE COM IA ===
+def interpreta_frase_inteligente(update, context):
+    texto = update.message.text.strip()
+
+    # Se for modo manual com "|", redireciona
+    if "|" in texto:
+        processa_despesa(update, context)
+        return
+
+    texto_lower = texto.lower()
+    valor_match = re.search(r'(\d+[.,]?\d*)', texto_lower)
+    vencimento_match = re.search(r'(\d{2}/\d{2}/\d{4})', texto_lower)
+    parcelas_match = re.search(r'(\d+)\s+parcelas?', texto_lower)
+
+    descricao = texto
+    valor_total = float(valor_match.group(1).replace(',', '.')) if valor_match else None
+    vencimento_str = vencimento_match.group(1) if vencimento_match else None
+    parcelas = int(parcelas_match.group(1)) if parcelas_match else 1
+
+    if not valor_total or not vencimento_str:
+        update.message.reply_text("❌ Não consegui entender valor ou vencimento. Verifique o formato.", parse_mode='MarkdownV2')
+        return
+
+    valor_parcela = round(valor_total / parcelas, 2)
+    vencimento = datetime.strptime(vencimento_str, "%d/%m/%Y")
+    aba = client.open(SPREADSHEET_NAME).worksheet("Pagamentos")
+
+    for i in range(parcelas):
+        data_parcela = vencimento + relativedelta(months=i)
+        data_fmt = data_parcela.strftime('%Y-%m-%d')
+        desc_parcela = f"{descricao} ({i+1}/{parcelas})"
+        aba.append_row([data_fmt, valor_parcela, "Cartão de Crédito", desc_parcela, "Sim", "Não"])
+
+    update.message.reply_text(f"✅ Parcelado: R${valor_parcela:.2f} x {parcelas}", parse_mode='MarkdownV2')
 
 # === LEMBRETE DIÁRIO ===
 def enviar_lembretes_do_dia(bot, chat_id):
@@ -101,7 +138,7 @@ def agendar_lembrete_diario(bot, chat_id):
 
 # === MAIN ===
 def main():
-    # Remove qualquer webhook pendente para evitar conflito com polling
+    # Limpa qualquer webhook pendente
     Bot(TOKEN).delete_webhook()
 
     updater = Updater(TOKEN, use_context=True)
@@ -110,12 +147,9 @@ def main():
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("nova", nova))
     dp.add_handler(CommandHandler("meuid", capturar_chat_id))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, processa_despesa))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, interpreta_frase_inteligente))
 
-    # Agendar lembrete
     threading.Thread(target=agendar_lembrete_diario, args=(updater.bot, CHAT_ID), daemon=True).start()
-
-    # Servidor Flask para Render detectar a porta
     threading.Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
 
     updater.start_polling()
