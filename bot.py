@@ -76,36 +76,49 @@ def processa_despesa(update, context):
 def interpreta_frase_inteligente(update, context):
     texto = update.message.text.strip()
 
-    # Se for modo manual com "|", redireciona
+    # Se for formato manual com "|", redireciona
     if "|" in texto:
         processa_despesa(update, context)
         return
 
     texto_lower = texto.lower()
-    valores = re.findall(r'\d{2,5}[.,]\d{2}', texto_lower)
-    vencimento_match = re.search(r'(\d{2}/\d{2}/\d{4})', texto_lower)
-    parcelas_match = re.search(r'(\d+)\s+parcelas?', texto_lower)
 
-    descricao = texto
-    valor_total = float(valores[-1].replace(',', '.')) if valores else None
+    # Extrai data de vencimento
+    vencimento_match = re.search(r'(\d{2}/\d{2}/\d{4})', texto_lower)
     vencimento_str = vencimento_match.group(1) if vencimento_match else None
+
+    # Extrai número de parcelas
+    parcelas_match = re.search(r'(\d+)\s+parcelas?', texto_lower)
     parcelas = int(parcelas_match.group(1)) if parcelas_match else 1
 
-    if not valor_total or not vencimento_str:
-        update.message.reply_text("❌ Não consegui entender valor ou vencimento. Verifique o formato.", parse_mode='MarkdownV2')
+    # Extrai todos os valores no formato 999,99 ou 999.99
+    valores = re.findall(r'\d{2,5}[.,]\d{2}', texto_lower)
+    valor_bruto = float(valores[-1].replace(',', '.')) if valores else None
+
+    if not valor_bruto or not vencimento_str:
+        update.message.reply_text("❌ Não consegui entender *valor* ou *vencimento*. Verifique o formato.", parse_mode='MarkdownV2')
         return
 
-    valor_parcela = round(valor_total / parcelas, 2)
+    # Detecta se o valor informado é o da parcela ou o total
+    if "parcela de" in texto_lower or "cada" in texto_lower:
+        valor_parcela = round(valor_bruto, 2)
+    else:
+        valor_parcela = round(valor_bruto / parcelas, 2)
+
     vencimento = datetime.strptime(vencimento_str, "%d/%m/%Y")
     aba = client.open(SPREADSHEET_NAME).worksheet("Pagamentos")
 
     for i in range(parcelas):
         data_parcela = vencimento + relativedelta(months=i)
         data_fmt = data_parcela.strftime('%Y-%m-%d')
-        desc_parcela = f"{descricao} ({i+1}/{parcelas})"
+        desc_parcela = f"{texto} ({i+1}/{parcelas})"
         aba.append_row([data_fmt, valor_parcela, "Cartão de Crédito", desc_parcela, "Sim", "Não"])
 
-    update.message.reply_text(f"✅ Parcelado: R${valor_parcela:.2f} x {parcelas}", parse_mode='MarkdownV2')
+    update.message.reply_text(
+        f"✅ Lançado: R${valor_parcela:.2f} x {parcelas}",
+        parse_mode='MarkdownV2'
+    )
+
 
 # === LEMBRETE DIÁRIO ===
 def enviar_lembretes_do_dia(bot, chat_id):
