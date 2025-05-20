@@ -6,21 +6,23 @@ import threading
 import re
 from datetime import datetime
 from flask import Flask
+from telegram import Bot
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 # === CONFIGURAÇÕES ===
 TOKEN = os.getenv("TOKEN")
+CHAT_ID = 1342787099
 SPREADSHEET_NAME = "Controle de Despesas"
 
-# === FLASK FAKE SERVER PARA RENDER ===
+# === FLASK SERVER FAKE PARA RENDER ===
 app = Flask(__name__)
 @app.route('/')
 def keep_alive():
     return 'Bot rodando com sucesso!'
 
-# === ESCAPE PARA MarkdownV2 ===
+# === ESCAPE MarkdownV2 ===
 def escape_markdown(text):
     escape_chars = r'_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
@@ -99,6 +101,9 @@ def agendar_lembrete_diario(bot, chat_id):
 
 # === MAIN ===
 def main():
+    # Remove qualquer webhook pendente para evitar conflito com polling
+    Bot(TOKEN).delete_webhook()
+
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
 
@@ -107,13 +112,10 @@ def main():
     dp.add_handler(CommandHandler("meuid", capturar_chat_id))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, processa_despesa))
 
-    # === INSIRA SEU CHAT_ID AQUI
-    chat_id = 123456789  # <--- Substitua pelo valor obtido via /meuid
+    # Agendar lembrete
+    threading.Thread(target=agendar_lembrete_diario, args=(updater.bot, CHAT_ID), daemon=True).start()
 
-    if isinstance(chat_id, int):
-        threading.Thread(target=agendar_lembrete_diario, args=(updater.bot, chat_id), daemon=True).start()
-
-    # Mantém uma porta ativa para a Render
+    # Servidor Flask para Render detectar a porta
     threading.Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
 
     updater.start_polling()
