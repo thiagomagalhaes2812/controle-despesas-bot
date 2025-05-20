@@ -98,7 +98,7 @@ def main():
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, processa_despesa))
 
     # === ATENÇÃO: Substitua abaixo pelo seu chat_id depois de usar /meuid
-    chat_id = SEU_CHAT_ID_AQUI  # Exemplo: 123456789
+    chat_id = 123456789  # Exemplo: 123456789
 
     # Iniciar o lembrete diário em thread paralela
     if isinstance(chat_id, int):
