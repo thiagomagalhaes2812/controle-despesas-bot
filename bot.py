@@ -23,13 +23,12 @@ app = Flask(__name__)
 def keep_alive():
     return 'Bot rodando com sucesso!'
 
-# === ESCAPE PARA MarkdownV2 ===
+# === ESCAPE MarkdownV2 ===
 def escape_markdown(text):
     escape_chars = r'\_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
-
-# === GOOGLE SHEETS AUTENTICAÇÃO ===
+# === AUTENTICAÇÃO GOOGLE SHEETS ===
 creds_base64 = os.getenv("CREDS_JSON_BASE64")
 with open("creds.json", "wb") as f:
     f.write(base64.b64decode(creds_base64))
@@ -76,22 +75,17 @@ def processa_despesa(update, context):
 def interpreta_frase_inteligente(update, context):
     texto = update.message.text.strip()
 
-    # Se for formato manual com "|", redireciona
     if "|" in texto:
         processa_despesa(update, context)
         return
 
     texto_lower = texto.lower()
-
-    # Extrai data de vencimento
     vencimento_match = re.search(r'(\d{2}/\d{2}/\d{4})', texto_lower)
     vencimento_str = vencimento_match.group(1) if vencimento_match else None
 
-    # Extrai número de parcelas
     parcelas_match = re.search(r'(\d+)\s+parcelas?', texto_lower)
     parcelas = int(parcelas_match.group(1)) if parcelas_match else 1
 
-    # Extrai todos os valores no formato 999,99 ou 999.99
     valores = re.findall(r'\d{2,5}[.,]\d{2}', texto_lower)
     valor_bruto = float(valores[-1].replace(',', '.')) if valores else None
 
@@ -99,16 +93,16 @@ def interpreta_frase_inteligente(update, context):
         update.message.reply_text("❌ Não consegui entender *valor* ou *vencimento*. Verifique o formato.", parse_mode='MarkdownV2')
         return
 
-    # === Lógica inteligente para decidir se é valor total ou da parcela ===
+    # Lógica de inferência inteligente
     parcela_direta = any(p in texto_lower for p in ["parcela de", "cada", "mensalidade", "mensal"])
     valor_depois_parcelas = re.search(r'parcelas?.*?(\d{2,5}[.,]\d{2})', texto_lower)
+    em_parcelas = re.search(r'valor\s+de\s+\d{2,5}[.,]\d{2}\s+em\s+\d+\s+parcelas?', texto_lower)
 
-    if parcela_direta or valor_depois_parcelas:
+    if parcela_direta or valor_depois_parcelas or em_parcelas:
         valor_parcela = round(valor_bruto, 2)
     else:
         valor_parcela = round(valor_bruto / parcelas, 2)
 
-    # Processa vencimento e insere no Google Sheets
     vencimento = datetime.strptime(vencimento_str, "%d/%m/%Y")
     aba = client.open(SPREADSHEET_NAME).worksheet("Pagamentos")
 
@@ -116,7 +110,6 @@ def interpreta_frase_inteligente(update, context):
         data_parcela = vencimento + relativedelta(months=i)
         data_fmt = data_parcela.strftime('%Y-%m-%d')
 
-        # Limpa descrição removendo 'X parcelas'
         descricao_limpa = re.sub(r'\b\d+\s+parcelas?\b', '', texto_lower, flags=re.IGNORECASE)
         desc_parcela = f"{descricao_limpa.strip().capitalize()} ({i+1}/{parcelas})"
 
@@ -126,8 +119,6 @@ def interpreta_frase_inteligente(update, context):
         f"✅ Lançado: R${valor_parcela:.2f} x {parcelas}",
         parse_mode='MarkdownV2'
     )
-
-
 
 # === LEMBRETE DIÁRIO ===
 def enviar_lembretes_do_dia(bot, chat_id):
@@ -161,7 +152,6 @@ def agendar_lembrete_diario(bot, chat_id):
 
 # === MAIN ===
 def main():
-    # Limpa qualquer webhook pendente
     Bot(TOKEN).delete_webhook()
 
     updater = Updater(TOKEN, use_context=True)
