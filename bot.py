@@ -14,16 +14,16 @@ from oauth2client.service_account import ServiceAccountCredentials
 TOKEN = os.getenv("TOKEN")
 SPREADSHEET_NAME = "Controle de Despesas"
 
-# === FLASK FALSO PARA RENDER DETECTAR PORTA ===
+# === FLASK FAKE SERVER PARA RENDER ===
 app = Flask(__name__)
-
 @app.route('/')
 def keep_alive():
-    return 'Bot rodando!'
+    return 'Bot rodando com sucesso!'
 
-# === ESCAPE MarkdownV2 ===
+# === ESCAPE PARA MarkdownV2 ===
 def escape_markdown(text):
-    return re.sub(r'([_\*\[\]\(\)~`>#+\-=|{}.!])', r'\\\1', text)
+    escape_chars = r'_*[]()~`>#+-=|{}.!'
+    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
 # === GOOGLE SHEETS ===
 creds_base64 = os.getenv("CREDS_JSON_BASE64")
@@ -40,7 +40,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def start(update, context):
-    update.message.reply_text("👋 Olá! Use /nova para registrar uma despesa.\nUse /meuid para ativar lembretes.")
+    update.message.reply_text("👋 Olá! Use /nova para registrar uma despesa.\nUse /meuid para ativar lembretes.", parse_mode='MarkdownV2')
 
 def nova(update, context):
     update.message.reply_text("Envie assim:\n`75.50 | Alimentação | Padaria | 20/05`", parse_mode='MarkdownV2')
@@ -60,11 +60,12 @@ def processa_despesa(update, context):
     usuario = update.message.chat.username or update.message.chat.first_name
 
     sheet.append_row([data, valor, categoria, descricao, usuario])
-    update.message.reply_text(f"✅ Registrado: R${valor} | {categoria} | {descricao} | {data}")
+    update.message.reply_text(f"✅ Registrado: R${valor} | {categoria} | {descricao} | {data}", parse_mode='MarkdownV2')
 
 def capturar_chat_id(update, context):
     chat_id = update.message.chat_id
-    update.message.reply_text(f"🆔 Seu chat_id é:\n`{chat_id}`", parse_mode='MarkdownV2')
+    msg = f"🆔 Seu chat_id é:\n{chat_id}"
+    update.message.reply_text(escape_markdown(msg), parse_mode='MarkdownV2')
 
 # === LEMBRETE DIÁRIO ===
 def enviar_lembretes_do_dia(bot, chat_id):
@@ -79,8 +80,8 @@ def enviar_lembretes_do_dia(bot, chat_id):
         ]
 
         if pagamentos:
-            msg = "🔔 *Pagamentos de hoje:*\n\n" + "\n".join(pagamentos)
-            bot.send_message(chat_id=chat_id, text=escape_markdown(msg), parse_mode='MarkdownV2')
+            msg_raw = "🔔 Pagamentos de hoje:\n\n" + "\n".join(pagamentos)
+            bot.send_message(chat_id=chat_id, text=escape_markdown(msg_raw), parse_mode='MarkdownV2')
 
     except Exception as e:
         logger.error(f"[Erro no lembrete] {e}")
@@ -107,12 +108,12 @@ def main():
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, processa_despesa))
 
     # === INSIRA SEU CHAT_ID AQUI
-    chat_id = 123456789  # <--- Substitua pelo ID retornado por /meuid
+    chat_id = 123456789  # <--- Substitua pelo valor obtido via /meuid
 
     if isinstance(chat_id, int):
         threading.Thread(target=agendar_lembrete_diario, args=(updater.bot, chat_id), daemon=True).start()
 
-    # === MANTÉM A RENDER FELIZ COM UMA PORTA ABERTA
+    # Mantém uma porta ativa para a Render
     threading.Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
 
     updater.start_polling()
