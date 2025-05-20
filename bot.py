@@ -4,6 +4,8 @@ import base64
 import time
 import threading
 import re
+import string
+from random import choices
 from datetime import datetime
 from flask import Flask
 from telegram import Bot
@@ -17,13 +19,11 @@ TOKEN = os.getenv("TOKEN")
 CHAT_ID = 1342787099
 SPREADSHEET_NAME = "Controle de Despesas"
 
-# === FLASK para Render ===
 app = Flask(__name__)
 @app.route('/')
 def keep_alive():
     return 'Bot rodando com sucesso!'
 
-# === MarkdownV2 Safe Escape ===
 def escape_markdown(text):
     escape_chars = r'\_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
@@ -38,11 +38,14 @@ creds = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
 client = gspread.authorize(creds)
 sheet = client.open(SPREADSHEET_NAME).sheet1
 
-# === Telegram Logging ===
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# === Comandos ===
+def gerar_id_unico():
+    dt = datetime.now().strftime("%Y%m%d%H%M%S")
+    rand = ''.join(choices(string.ascii_uppercase + string.digits, k=3))
+    return f"{dt}-{rand}"
+
 def start(update, context):
     update.message.reply_text("👋 Use /nova para registrar uma despesa.\nOu envie frases como:\n`cartão crédito c6 600,00 vencimento 04/05/2025 6 parcelas`", parse_mode='MarkdownV2')
 
@@ -54,7 +57,6 @@ def capturar_chat_id(update, context):
     msg = f"🆔 Seu chat_id é:\n{chat_id}"
     update.message.reply_text(escape_markdown(msg), parse_mode='MarkdownV2')
 
-# === Registro manual via "|"
 def processa_despesa(update, context):
     texto = update.message.text
     partes = [p.strip() for p in texto.split('|')]
@@ -68,11 +70,11 @@ def processa_despesa(update, context):
     descricao = partes[2]
     data = partes[3] if len(partes) > 3 else datetime.today().strftime('%d/%m/%Y')
     usuario = update.message.chat.username or update.message.chat.first_name
+    id_unico = gerar_id_unico()
 
-    sheet.append_row([data, valor, categoria, descricao, usuario])
-    update.message.reply_text(f"✅ Registrado: R${valor} | {categoria} | {descricao} | {data}", parse_mode='MarkdownV2')
+    sheet.append_row([data, valor, categoria, descricao, usuario, id_unico])
+    update.message.reply_text(f"✅ Registrado: R${valor} | {categoria} | {descricao} | {data} | ID `{id_unico}`", parse_mode='MarkdownV2')
 
-# === Modo inteligente com IA
 def interpreta_frase_inteligente(update, context):
     texto = update.message.text.strip()
     if "|" in texto:
@@ -86,7 +88,6 @@ def interpreta_frase_inteligente(update, context):
     parcelas_match = re.search(r'(\d+)\s+parcelas?', texto_lower)
     parcelas = int(parcelas_match.group(1)) if parcelas_match else 1
 
-    # Valor contextual inteligente
     valor_contextual = re.search(r'valor\s+de\s+(\d{2,5}[.,]\d{2})\s+(em|em até)?\s*\d+\s+parcelas?', texto_lower)
     valor_bruto = None
 
@@ -116,18 +117,18 @@ def interpreta_frase_inteligente(update, context):
     for i in range(parcelas):
         data_parcela = vencimento + relativedelta(months=i)
         data_fmt = data_parcela.strftime('%Y-%m-%d')
+        id_unico = gerar_id_unico()
 
         descricao_limpa = re.sub(r'\b\d+\s+parcelas?\b', '', texto_lower, flags=re.IGNORECASE)
         desc_parcela = f"{descricao_limpa.strip().capitalize()} ({i+1}/{parcelas})"
 
-        aba.append_row([data_fmt, valor_parcela, "Cartão de Crédito", desc_parcela, "Sim", "Não"])
+        aba.append_row([data_fmt, valor_parcela, "Cartão de Crédito", desc_parcela, "Sim", "Não", id_unico])
 
     update.message.reply_text(
         f"✅ Lançado: R${valor_parcela:.2f} x {parcelas}",
         parse_mode='MarkdownV2'
     )
 
-# === Lembrete diário
 def enviar_lembretes_do_dia(bot, chat_id):
     try:
         aba = client.open(SPREADSHEET_NAME).worksheet("Pagamentos")
@@ -135,7 +136,7 @@ def enviar_lembretes_do_dia(bot, chat_id):
         hoje = datetime.today().strftime('%Y-%m-%d')
 
         pagamentos = [
-            f"- R${linha['Valor']} | {linha['Categoria']} | {linha['Descrição']}"
+            f"- R${linha['Valor']} | {linha['Categoria']} | {linha['Descrição']} | ID: {linha['ID']}"
             for linha in dados if linha['Data'] == hoje and str(linha['Pago?']).strip().lower() != 'sim'
         ]
 
@@ -150,14 +151,36 @@ def agendar_lembrete_diario(bot, chat_id):
     enviado_hoje = False
     while True:
         agora = datetime.now()
-        if agora.hour == 8 and not enviado_hoje:
+        if agora.hour == 9 and not enviado_hoje:
             enviar_lembretes_do_dia(bot, chat_id)
             enviado_hoje = True
-        elif agora.hour != 8:
+        elif agora.hour != 9:
             enviado_hoje = False
         time.sleep(60)
 
-# === MAIN FINAL com segurança anti-conflito
+def pagar(update, context):
+    if not context.args:
+        update.message.reply_text("🧾 Use assim: /pagar <ID>")
+        return
+
+    id_informado = context.args[0].strip().upper()
+    aba = client.open(SPREADSHEET_NAME).worksheet("Pagamentos")
+    valores = aba.get_all_values()
+    cabecalho = valores[0]
+    linhas = valores[1:]
+
+    id_index = cabecalho.index("ID")
+    pago_index = cabecalho.index("Pago?")
+
+    for i, linha in enumerate(linhas):
+        if linha[id_index].strip().upper() == id_informado:
+            linha_num = i + 2
+            aba.update_cell(linha_num, pago_index + 1, "Sim")
+            update.message.reply_text(f"✅ Pagamento confirmado para ID `{id_informado}`", parse_mode='MarkdownV2')
+            return
+
+    update.message.reply_text(f"❌ ID `{id_informado}` não encontrado.", parse_mode='MarkdownV2')
+
 def main():
     bot = Bot(TOKEN)
     try:
@@ -172,6 +195,7 @@ def main():
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("nova", nova))
     dp.add_handler(CommandHandler("meuid", capturar_chat_id))
+    dp.add_handler(CommandHandler("pagar", pagar))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, interpreta_frase_inteligente))
 
     threading.Thread(target=agendar_lembrete_diario, args=(updater.bot, CHAT_ID), daemon=True).start()
