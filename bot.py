@@ -142,7 +142,10 @@ def enviar_lembretes_do_dia(bot, chat_id):
 
         if pagamentos:
             msg_raw = "🔔 Pagamentos de hoje:\n\n" + "\n".join(pagamentos)
-            bot.send_message(chat_id=chat_id, text=escape_markdown(msg_raw), parse_mode='MarkdownV2')
+        else:
+            msg_raw = "✅ Nenhum pagamento pendente para hoje."
+
+        bot.send_message(chat_id=chat_id, text=escape_markdown(msg_raw), parse_mode='MarkdownV2')
 
     except Exception as e:
         logger.error(f"[Erro no lembrete] {e}")
@@ -181,6 +184,23 @@ def pagar(update, context):
 
     update.message.reply_text(f"❌ ID `{id_informado}` não encontrado.", parse_mode='MarkdownV2')
 
+def hoje(update, context):
+    aba = client.open(SPREADSHEET_NAME).worksheet("Pagamentos")
+    dados = aba.get_all_records()
+    hoje_str = datetime.today().strftime('%Y-%m-%d')
+
+    pagamentos = [
+        f"- R${linha['Valor']} | {linha['Categoria']} | {linha['Descrição']} | ID: {linha['ID']}"
+        for linha in dados if linha['Data'] == hoje_str and str(linha['Pago?']).strip().lower() != 'sim'
+    ]
+
+    if pagamentos:
+        msg_raw = "🔔 Pagamentos de hoje:\n\n" + "\n".join(pagamentos)
+    else:
+        msg_raw = "✅ Nenhum pagamento pendente para hoje."
+
+    update.message.reply_text(escape_markdown(msg_raw), parse_mode='MarkdownV2')
+
 def main():
     bot = Bot(TOKEN)
     try:
@@ -196,6 +216,7 @@ def main():
     dp.add_handler(CommandHandler("nova", nova))
     dp.add_handler(CommandHandler("meuid", capturar_chat_id))
     dp.add_handler(CommandHandler("pagar", pagar))
+    dp.add_handler(CommandHandler("hoje", hoje))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, interpreta_frase_inteligente))
 
     threading.Thread(target=agendar_lembrete_diario, args=(updater.bot, CHAT_ID), daemon=True).start()
