@@ -152,7 +152,8 @@ def agendar_lembrete_diario(bot, chat_id):
 
 # === MAIN ===
 def main():
-    Bot(TOKEN).delete_webhook()
+    bot = Bot(TOKEN)
+    bot.delete_webhook(drop_pending_updates=True)  # <- força cancelamento de qualquer outro processo ativo
 
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
@@ -167,6 +168,7 @@ def main():
 
     updater.start_polling()
     updater.idle()
+
 
 if __name__ == '__main__':
     main()
