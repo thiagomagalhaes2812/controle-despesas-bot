@@ -99,25 +99,34 @@ def interpreta_frase_inteligente(update, context):
         update.message.reply_text("❌ Não consegui entender *valor* ou *vencimento*. Verifique o formato.", parse_mode='MarkdownV2')
         return
 
-    # Detecta se o valor informado é o da parcela ou o total
-    if "parcela de" in texto_lower or "cada" in texto_lower:
+    # === Lógica inteligente para decidir se é valor total ou da parcela ===
+    parcela_direta = any(p in texto_lower for p in ["parcela de", "cada", "mensalidade", "mensal"])
+    valor_depois_parcelas = re.search(r'parcelas?.*?(\d{2,5}[.,]\d{2})', texto_lower)
+
+    if parcela_direta or valor_depois_parcelas:
         valor_parcela = round(valor_bruto, 2)
     else:
         valor_parcela = round(valor_bruto / parcelas, 2)
 
+    # Processa vencimento e insere no Google Sheets
     vencimento = datetime.strptime(vencimento_str, "%d/%m/%Y")
     aba = client.open(SPREADSHEET_NAME).worksheet("Pagamentos")
 
     for i in range(parcelas):
         data_parcela = vencimento + relativedelta(months=i)
         data_fmt = data_parcela.strftime('%Y-%m-%d')
-        desc_parcela = f"{texto} ({i+1}/{parcelas})"
+
+        # Limpa descrição removendo 'X parcelas'
+        descricao_limpa = re.sub(r'\b\d+\s+parcelas?\b', '', texto_lower, flags=re.IGNORECASE)
+        desc_parcela = f"{descricao_limpa.strip().capitalize()} ({i+1}/{parcelas})"
+
         aba.append_row([data_fmt, valor_parcela, "Cartão de Crédito", desc_parcela, "Sim", "Não"])
 
     update.message.reply_text(
         f"✅ Lançado: R${valor_parcela:.2f} x {parcelas}",
         parse_mode='MarkdownV2'
     )
+
 
 
 # === LEMBRETE DIÁRIO ===
