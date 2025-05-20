@@ -5,47 +5,42 @@ import time
 import threading
 import re
 from datetime import datetime
+from flask import Flask
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-
-
-from flask import Flask
-import threading
-
-app = Flask(__name__)
-
-@app.route('/')
-def keep_alive():
-    return 'Bot rodando com sucesso!'
-
 
 # === CONFIGURAÇÕES ===
 TOKEN = os.getenv("TOKEN")
 SPREADSHEET_NAME = "Controle de Despesas"
 
-# === RECONSTRUIR creds.json A PARTIR DO BASE64 ===
+# === FLASK FALSO PARA RENDER DETECTAR PORTA ===
+app = Flask(__name__)
+
+@app.route('/')
+def keep_alive():
+    return 'Bot rodando!'
+
+# === ESCAPE MarkdownV2 ===
+def escape_markdown(text):
+    return re.sub(r'([_\*\[\]\(\)~`>#+\-=|{}.!])', r'\\\1', text)
+
+# === GOOGLE SHEETS ===
 creds_base64 = os.getenv("CREDS_JSON_BASE64")
 with open("creds.json", "wb") as f:
     f.write(base64.b64decode(creds_base64))
 
-# === AUTENTICAÇÃO COM GOOGLE SHEETS ===
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
 client = gspread.authorize(creds)
 sheet = client.open(SPREADSHEET_NAME).sheet1
 
-# === SETUP DO TELEGRAM ===
+# === TELEGRAM SETUP ===
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# === ESCAPE PARA MarkdownV2 ===
-def escape_markdown(text):
-    return re.sub(r'([_\*\[\]\(\)~`>#+\-=|{}.!])', r'\\\1', text)
-
-# === COMANDOS DO BOT ===
 def start(update, context):
-    update.message.reply_text("👋 Olá! Use /nova para registrar uma despesa.\nUse /meuid para ativar o lembrete.")
+    update.message.reply_text("👋 Olá! Use /nova para registrar uma despesa.\nUse /meuid para ativar lembretes.")
 
 def nova(update, context):
     update.message.reply_text("Envie assim:\n`75.50 | Alimentação | Padaria | 20/05`", parse_mode='MarkdownV2')
@@ -71,20 +66,20 @@ def capturar_chat_id(update, context):
     chat_id = update.message.chat_id
     update.message.reply_text(f"🆔 Seu chat_id é:\n`{chat_id}`", parse_mode='MarkdownV2')
 
-# === LEMBRETE AUTOMÁTICO ===
+# === LEMBRETE DIÁRIO ===
 def enviar_lembretes_do_dia(bot, chat_id):
     try:
         aba = client.open(SPREADSHEET_NAME).worksheet("Pagamentos")
         dados = aba.get_all_records()
         hoje = datetime.today().strftime('%Y-%m-%d')
 
-        pagamentos_hoje = [
+        pagamentos = [
             f"- R${linha['Valor']} | {linha['Categoria']} | {linha['Descrição']}"
             for linha in dados if linha['Data'] == hoje and str(linha['Pago?']).strip().lower() != 'sim'
         ]
 
-        if pagamentos_hoje:
-            msg = "🔔 *Pagamentos de hoje:*\n\n" + "\n".join(pagamentos_hoje)
+        if pagamentos:
+            msg = "🔔 *Pagamentos de hoje:*\n\n" + "\n".join(pagamentos)
             bot.send_message(chat_id=chat_id, text=escape_markdown(msg), parse_mode='MarkdownV2')
 
     except Exception as e:
@@ -111,15 +106,14 @@ def main():
     dp.add_handler(CommandHandler("meuid", capturar_chat_id))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, processa_despesa))
 
-    # === INSIRA AQUI SEU CHAT_ID REAL
-    chat_id = 123456789  # substitua pelo seu ID real após usar /meuid
+    # === INSIRA SEU CHAT_ID AQUI
+    chat_id = 123456789  # <--- Substitua pelo ID retornado por /meuid
 
     if isinstance(chat_id, int):
         threading.Thread(target=agendar_lembrete_diario, args=(updater.bot, chat_id), daemon=True).start()
 
-# Iniciar servidor Flask em thread paralela
-threading.Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
-
+    # === MANTÉM A RENDER FELIZ COM UMA PORTA ABERTA
+    threading.Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
 
     updater.start_polling()
     updater.idle()
