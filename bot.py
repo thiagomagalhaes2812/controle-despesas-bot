@@ -12,23 +12,23 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from dateutil.relativedelta import relativedelta
 
-# === CONFIGURAÇÕES ===
+# === CONFIG ===
 TOKEN = os.getenv("TOKEN")
 CHAT_ID = 1342787099
 SPREADSHEET_NAME = "Controle de Despesas"
 
-# === FLASK SERVER PARA RENDER ===
+# === FLASK para Render ===
 app = Flask(__name__)
 @app.route('/')
 def keep_alive():
     return 'Bot rodando com sucesso!'
 
-# === ESCAPE MarkdownV2 ===
+# === MarkdownV2 Safe Escape ===
 def escape_markdown(text):
     escape_chars = r'\_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
-# === AUTENTICAÇÃO GOOGLE SHEETS ===
+# === Google Sheets via base64 ===
 creds_base64 = os.getenv("CREDS_JSON_BASE64")
 with open("creds.json", "wb") as f:
     f.write(base64.b64decode(creds_base64))
@@ -38,12 +38,13 @@ creds = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
 client = gspread.authorize(creds)
 sheet = client.open(SPREADSHEET_NAME).sheet1
 
-# === TELEGRAM SETUP ===
+# === Telegram Logging ===
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# === Comandos ===
 def start(update, context):
-    update.message.reply_text("👋 Olá! Use /nova para registrar uma despesa.\nOu envie frases como:\n`cartão crédito c6 600,00 vencimento 04/05/2025 6 parcelas`", parse_mode='MarkdownV2')
+    update.message.reply_text("👋 Use /nova para registrar uma despesa.\nOu envie frases como:\n`cartão crédito c6 600,00 vencimento 04/05/2025 6 parcelas`", parse_mode='MarkdownV2')
 
 def nova(update, context):
     update.message.reply_text("Envie a despesa assim:\n`75.50 | Alimentação | Padaria | 20/05`", parse_mode='MarkdownV2')
@@ -53,7 +54,7 @@ def capturar_chat_id(update, context):
     msg = f"🆔 Seu chat_id é:\n{chat_id}"
     update.message.reply_text(escape_markdown(msg), parse_mode='MarkdownV2')
 
-# === REGISTRO MANUAL ===
+# === Modo manual com "|"
 def processa_despesa(update, context):
     texto = update.message.text
     partes = [p.strip() for p in texto.split('|')]
@@ -71,10 +72,9 @@ def processa_despesa(update, context):
     sheet.append_row([data, valor, categoria, descricao, usuario])
     update.message.reply_text(f"✅ Registrado: R${valor} | {categoria} | {descricao} | {data}", parse_mode='MarkdownV2')
 
-# === REGISTRO INTELIGENTE COM IA ===
+# === Modo inteligente
 def interpreta_frase_inteligente(update, context):
     texto = update.message.text.strip()
-
     if "|" in texto:
         processa_despesa(update, context)
         return
@@ -86,22 +86,29 @@ def interpreta_frase_inteligente(update, context):
     parcelas_match = re.search(r'(\d+)\s+parcelas?', texto_lower)
     parcelas = int(parcelas_match.group(1)) if parcelas_match else 1
 
-    valores = re.findall(r'\d{2,5}[.,]\d{2}', texto_lower)
-    valor_bruto = float(valores[-1].replace(',', '.')) if valores else None
+    # Valor contextual inteligente
+    valor_contextual = re.search(r'valor\s+de\s+(\d{2,5}[.,]\d{2})\s+(em|em até)?\s*\d+\s+parcelas?', texto_lower)
+    valor_bruto = None
+
+    if valor_contextual:
+        valor_bruto = float(valor_contextual.group(1).replace(',', '.'))
+        valor_parcela = round(valor_bruto, 2)
+    else:
+        valores = re.findall(r'\d{2,5}[.,]\d{2}', texto_lower)
+        valor_bruto = float(valores[-1].replace(',', '.')) if valores else None
+
+        parcela_direta = any(p in texto_lower for p in ["parcela de", "cada", "mensalidade", "mensal"])
+        valor_depois_parcelas = re.search(r'parcelas?.*?(\d{2,5}[.,]\d{2})', texto_lower)
+        em_parcelas = re.search(r'valor\s+de\s+\d{2,5}[.,]\d{2}\s+em\s+\d+\s+parcelas?', texto_lower)
+
+        if parcela_direta or valor_depois_parcelas or em_parcelas:
+            valor_parcela = round(valor_bruto, 2)
+        else:
+            valor_parcela = round(valor_bruto / parcelas, 2)
 
     if not valor_bruto or not vencimento_str:
         update.message.reply_text("❌ Não consegui entender *valor* ou *vencimento*. Verifique o formato.", parse_mode='MarkdownV2')
         return
-
-    # Lógica de inferência inteligente
-    parcela_direta = any(p in texto_lower for p in ["parcela de", "cada", "mensalidade", "mensal"])
-    valor_depois_parcelas = re.search(r'parcelas?.*?(\d{2,5}[.,]\d{2})', texto_lower)
-    em_parcelas = re.search(r'valor\s+de\s+\d{2,5}[.,]\d{2}\s+em\s+\d+\s+parcelas?', texto_lower)
-
-    if parcela_direta or valor_depois_parcelas or em_parcelas:
-        valor_parcela = round(valor_bruto, 2)
-    else:
-        valor_parcela = round(valor_bruto / parcelas, 2)
 
     vencimento = datetime.strptime(vencimento_str, "%d/%m/%Y")
     aba = client.open(SPREADSHEET_NAME).worksheet("Pagamentos")
@@ -120,7 +127,7 @@ def interpreta_frase_inteligente(update, context):
         parse_mode='MarkdownV2'
     )
 
-# === LEMBRETE DIÁRIO ===
+# === Lembretes Diários
 def enviar_lembretes_do_dia(bot, chat_id):
     try:
         aba = client.open(SPREADSHEET_NAME).worksheet("Pagamentos")
@@ -150,10 +157,10 @@ def agendar_lembrete_diario(bot, chat_id):
             enviado_hoje = False
         time.sleep(60)
 
-# === MAIN ===
+# === MAIN
 def main():
     bot = Bot(TOKEN)
-    bot.delete_webhook(drop_pending_updates=True)  # <- força cancelamento de qualquer outro processo ativo
+    bot.delete_webhook(drop_pending_updates=True)
 
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
@@ -168,7 +175,6 @@ def main():
 
     updater.start_polling()
     updater.idle()
-
 
 if __name__ == '__main__':
     main()
