@@ -25,8 +25,9 @@ def keep_alive():
 
 # === ESCAPE PARA MarkdownV2 ===
 def escape_markdown(text):
-    escape_chars = r'_*[]()~`>#+-=|{}.!'
+    escape_chars = r'\_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
+
 
 # === GOOGLE SHEETS AUTENTICAÇÃO ===
 creds_base64 = os.getenv("CREDS_JSON_BASE64")
