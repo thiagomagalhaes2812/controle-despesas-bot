@@ -54,7 +54,7 @@ def capturar_chat_id(update, context):
     msg = f"🆔 Seu chat_id é:\n{chat_id}"
     update.message.reply_text(escape_markdown(msg), parse_mode='MarkdownV2')
 
-# === Modo manual com "|"
+# === Registro manual via "|"
 def processa_despesa(update, context):
     texto = update.message.text
     partes = [p.strip() for p in texto.split('|')]
@@ -72,7 +72,7 @@ def processa_despesa(update, context):
     sheet.append_row([data, valor, categoria, descricao, usuario])
     update.message.reply_text(f"✅ Registrado: R${valor} | {categoria} | {descricao} | {data}", parse_mode='MarkdownV2')
 
-# === Modo inteligente
+# === Modo inteligente com IA
 def interpreta_frase_inteligente(update, context):
     texto = update.message.text.strip()
     if "|" in texto:
@@ -127,7 +127,7 @@ def interpreta_frase_inteligente(update, context):
         parse_mode='MarkdownV2'
     )
 
-# === Lembretes Diários
+# === Lembrete diário
 def enviar_lembretes_do_dia(bot, chat_id):
     try:
         aba = client.open(SPREADSHEET_NAME).worksheet("Pagamentos")
@@ -157,10 +157,14 @@ def agendar_lembrete_diario(bot, chat_id):
             enviado_hoje = False
         time.sleep(60)
 
-# === MAIN
+# === MAIN FINAL com segurança anti-conflito
 def main():
     bot = Bot(TOKEN)
-    bot.delete_webhook(drop_pending_updates=True)
+    try:
+        bot.delete_webhook(drop_pending_updates=True)
+        time.sleep(2)
+    except Exception as e:
+        print(f"Erro ao remover webhook: {e}")
 
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
