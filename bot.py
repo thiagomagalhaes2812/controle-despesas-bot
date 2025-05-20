@@ -82,12 +82,12 @@ def interpreta_frase_inteligente(update, context):
         return
 
     texto_lower = texto.lower()
-    valor_match = re.search(r'(\d+[.,]?\d*)', texto_lower)
+    valor_match = re.search(r'(valor de\s*)?(\d{2,5}[.,]\d{2})', texto_lower)
     vencimento_match = re.search(r'(\d{2}/\d{2}/\d{4})', texto_lower)
     parcelas_match = re.search(r'(\d+)\s+parcelas?', texto_lower)
 
     descricao = texto
-    valor_total = float(valor_match.group(1).replace(',', '.')) if valor_match else None
+    valor_total = float(valor_match.group(2).replace(',', '.')) if valor_match else None
     vencimento_str = vencimento_match.group(1) if vencimento_match else None
     parcelas = int(parcelas_match.group(1)) if parcelas_match else 1
 
