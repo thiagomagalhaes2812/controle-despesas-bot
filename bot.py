@@ -7,8 +7,13 @@ from flask import Flask, request
 from telegram import Bot, Update
 from telegram.ext import CommandHandler, MessageHandler, Filters, Dispatcher
 import gspread
+import json
+import os
 from oauth2client.service_account import ServiceAccountCredentials
-from apscheduler.schedulers.background import BackgroundScheduler
+
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds_json = os.getenv("GOOGLE_CREDENTIALS")
+creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(creds_json), scope)
 
 # Configurações
 TOKEN = "SEU_TOKEN_AQUI"
