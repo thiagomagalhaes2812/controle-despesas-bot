@@ -1,35 +1,17 @@
 
-import logging
 import os
+import logging
 import base64
-import re
-import string
-from random import choices
-from datetime import datetime
-from flask import Flask
-from telegram import Update, Bot
-from telegram.ext import (
-    Updater, CommandHandler, MessageHandler, Filters, CallbackContext,
-    ConversationHandler
-)
+from flask import Flask, request
+from telegram import Bot, Update
+from telegram.ext import Dispatcher, CommandHandler
+
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from dateutil.relativedelta import relativedelta
-from collections import defaultdict
 
-# === CONFIGURAÇÕES ===
 TOKEN = os.getenv("TOKEN")
-CHAT_ID = 1342787099
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 SPREADSHEET_NAME = "Controle de Despesas"
-
-app = Flask(__name__)
-@app.route('/')
-def keep_alive():
-    return 'Bot rodando com sucesso!'
-
-def escape_markdown(text):
-    escape_chars = r'\_*[]()~`>#+-=|{}.!'
-    return re.sub(f'([{re.escape(escape_chars)}])', r'\', text)
 
 creds_base64 = os.getenv("CREDS_JSON_BASE64")
 with open("creds.json", "wb") as f:
@@ -40,16 +22,31 @@ creds = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
 client = gspread.authorize(creds)
 sheet = client.open(SPREADSHEET_NAME).sheet1
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+bot = Bot(token=TOKEN)
+app = Flask(__name__)
+dispatcher = Dispatcher(bot, None, workers=0)
 
-def gerar_id_unico():
-    dt = datetime.now().strftime("%Y%m%d%H%M%S")
-    rand = ''.join(choices(string.ascii_uppercase + string.digits, k=3))
-    return f"{dt}-{rand}"
+def start(update, context):
+    update.message.reply_text("🤖 Bot de controle de despesas ativo com Webhook!")
 
-# Implementações dos comandos /resumo, /agenda, /adicionar...
-# Aqui viria o conteúdo completo de cada handler, conforme gerado anteriormente.
-# Por brevidade, omitido nesta célula, mas você pode adicionar o corpo completo real.
+dispatcher.add_handler(CommandHandler("start", start))
 
-print("Bot carregado com sucesso")
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), bot)
+    dispatcher.process_update(update)
+    return 'ok'
+
+@app.before_first_request
+def init_webhook():
+    bot.delete_webhook()
+    bot.set_webhook(url=WEBHOOK_URL)
+
+@app.route('/')
+def index():
+    return "Bot ativo com Webhook!"
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 10000))
+    print(f"Rodando Flask na porta: {port}")
+    app.run(host='0.0.0.0', port=port)
