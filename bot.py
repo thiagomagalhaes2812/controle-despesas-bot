@@ -11,8 +11,13 @@ import json
 import os
 from oauth2client.service_account import ServiceAccountCredentials
 
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds_json = os.getenv("GOOGLE_CREDENTIALS")
+import base64
+
+creds_b64 = os.getenv("CREDS_JSON_BASE64")
+if not creds_b64:
+    raise ValueError("Variável de ambiente CREDS_JSON_BASE64 não encontrada")
+
+creds_json = base64.b64decode(creds_b64).decode("utf-8")
 creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(creds_json), scope)
 
 # Configurações
@@ -23,7 +28,6 @@ ABA = "Despesas"
 
 # Google Sheets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("credenciais.json", scope)
 client = gspread.authorize(creds)
 sheet = client.open(PLANILHA).worksheet(ABA)
 
