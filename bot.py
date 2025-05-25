@@ -1,4 +1,3 @@
-
 import logging
 import re
 import uuid
@@ -11,53 +10,55 @@ import json
 import os
 import base64
 from oauth2client.service_account import ServiceAccountCredentials
+from apscheduler.schedulers.background import BackgroundScheduler
 
-
-creds_b64 = os.getenv('CREDS_JSON_BASE64')
-creds_json = base64.b64decode(creds_b64).decode('utf-8')
-scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(creds_json), scope)
-
-# Configurações
-TOKEN = "SEU_TOKEN_AQUI"
-CHAT_ID = 1342787099
+# CONFIGURAÇÕES
+TOKEN = "7514585491:AAE-XZmpQnQ_zslXvh1fcCtTVlOLThaEsbE"  # Substitua aqui pelo seu token do BotFather!
+CHAT_ID = 1342787099      # Seu chat_id do Telegram
 PLANILHA = "Controle de Despesas"
 ABA = "Despesas"
 
-# Google Sheets
+# GOOGLE SHEETS VIA CREDENCIAL BASE64
+creds_b64 = os.getenv('CREDS_JSON_BASE64')
+if not creds_b64:
+    raise Exception("Variável de ambiente CREDS_JSON_BASE64 não definida")
+creds_json = base64.b64decode(creds_b64).decode('utf-8')
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(creds_json), scope)
 client = gspread.authorize(creds)
 sheet = client.open(PLANILHA).worksheet(ABA)
 
-# Telegram
+# TELEGRAM & FLASK
 bot = Bot(token=TOKEN)
 app = Flask(__name__)
 scheduler = BackgroundScheduler()
 scheduler.start()
 
-# Logger
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+# LOGGER
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
 
-# Verificador diário
+# LEMBRETE DIÁRIO
 def verificar_pagamentos():
     hoje = datetime.now().strftime("%Y-%m-%d")
     registros = sheet.get_all_records()
     mensagens = []
     for linha in registros:
-        if linha["Data"] == hoje and linha["Pago?"].lower() != "sim":
+        if str(linha.get("Data")) == hoje and str(linha.get("Pago?")).strip().lower() != "sim":
             mensagens.append(f"🔔 *Lembrete de pagamento*: R${linha['Valor']} - {linha['Categoria']} - {linha['Descrição']} (ID: {linha['ID']})")
     if mensagens:
         bot.send_message(chat_id=CHAT_ID, text="\n".join(mensagens), parse_mode="Markdown")
 
 scheduler.add_job(verificar_pagamentos, trigger="cron", hour=9, minute=0)
 
-# Comandos
+# COMANDOS
 def hoje(update, context):
     hoje = datetime.now().strftime("%Y-%m-%d")
     registros = sheet.get_all_records()
     mensagens = [
         f"💰 R${linha['Valor']} | {linha['Categoria']} | {linha['Descrição']} | ID: {linha['ID']}"
-        for linha in registros if linha["Data"] == hoje
+        for linha in registros if str(linha.get("Data")) == hoje
     ]
     resposta = "\n".join(mensagens) if mensagens else "Nenhum pagamento agendado para hoje."
     update.message.reply_text(resposta)
@@ -84,19 +85,32 @@ def adicionar_lancamento(data, valor, categoria, descricao, parcelas):
         data_parcela = (data + timedelta(days=30 * i)).strftime("%Y-%m-%d")
         id_lancamento = str(uuid.uuid4())[:8]
         descricao_parcela = f"{descricao} ({i+1}/{parcelas})"
-        sheet.append_row([data_parcela, valor, categoria, descricao_parcela, "Sim", "Não", id_lancamento])
+        sheet.append_row([data_parcela, valor, categoria, descricao_parcela, "Não", "", id_lancamento])
 
 def receber_mensagem(update, context):
     mensagem = update.message.text
+    # Confirmação de pagamento via ID
+    if mensagem.lower().startswith("confirmar "):
+        id_confirmar = mensagem.split(" ")[1].strip()
+        registros = sheet.get_all_records()
+        for idx, linha in enumerate(registros, start=2):  # 2 porque get_all_records pula header
+            if str(linha.get("ID")).lower() == id_confirmar.lower():
+                sheet.update_cell(idx, 5, "Sim")
+                update.message.reply_text(f"✅ Pagamento do ID {id_confirmar} confirmado!")
+                return
+        update.message.reply_text(f"❌ ID {id_confirmar} não localizado.")
+        return
+
+    # Inclusão de nova despesa
     parsed = parse_mensagem(mensagem)
     if parsed:
         data, valor, categoria, descricao, parcelas = parsed
         adicionar_lancamento(data, valor, categoria, descricao, parcelas)
         update.message.reply_text("✅ Lançamento adicionado com sucesso.")
     else:
-        update.message.reply_text("⚠️ Não consegui entender sua mensagem. Verifique o formato.")
+        update.message.reply_text("⚠️ Não consegui entender sua mensagem. Verifique o formato ou use: data, valor, parcelas.")
 
-# Webhook handler
+# WEBHOOK HANDLER
 @app.route("/", methods=["POST"])
 def webhook():
     if request.method == "POST":
@@ -104,9 +118,8 @@ def webhook():
         dispatcher.process_update(update)
     return "ok"
 
-# Substituto de before_first_request
+# SUBSTITUTO DO before_first_request
 initialized = False
-
 @app.before_request
 def initialize_once():
     global initialized
