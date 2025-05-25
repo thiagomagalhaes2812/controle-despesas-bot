@@ -9,15 +9,13 @@ from telegram.ext import CommandHandler, MessageHandler, Filters, Dispatcher
 import gspread
 import json
 import os
+import base64
 from oauth2client.service_account import ServiceAccountCredentials
 
-import base64
 
-creds_b64 = os.getenv("CREDS_JSON_BASE64")
-if not creds_b64:
-    raise ValueError("Variável de ambiente CREDS_JSON_BASE64 não encontrada")
-
-creds_json = base64.b64decode(creds_b64).decode("utf-8")
+creds_b64 = os.getenv('CREDS_JSON_BASE64')
+creds_json = base64.b64decode(creds_b64).decode('utf-8')
+scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(creds_json), scope)
 
 # Configurações
