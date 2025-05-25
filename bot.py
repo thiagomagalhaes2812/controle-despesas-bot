@@ -16,7 +16,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 # CONFIGURAÇÕES
 TOKEN = "7514585491:AAE-XZmpQnQ_zslXvh1fcCtTVlOLThaEsbE"  # Substitua aqui pelo seu token do BotFather!
 CHAT_ID = 1342787099      # Seu chat_id do Telegram
-=======
+
 
 
 creds_b64 = os.getenv('CREDS_JSON_BASE64')
