@@ -10,11 +10,23 @@ import json
 import os
 import base64
 from oauth2client.service_account import ServiceAccountCredentials
+
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # CONFIGURAÇÕES
 TOKEN = "7514585491:AAE-XZmpQnQ_zslXvh1fcCtTVlOLThaEsbE"  # Substitua aqui pelo seu token do BotFather!
 CHAT_ID = 1342787099      # Seu chat_id do Telegram
+=======
+
+
+creds_b64 = os.getenv('CREDS_JSON_BASE64')
+creds_json = base64.b64decode(creds_b64).decode('utf-8')
+scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(creds_json), scope)
+
+# Configurações
+TOKEN = "SEU_TOKEN_AQUI"
+CHAT_ID = 1342787099
 PLANILHA = "Controle de Despesas"
 ABA = "Despesas"
 
